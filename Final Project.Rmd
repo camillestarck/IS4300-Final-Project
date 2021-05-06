@@ -1,0 +1,126 @@
+---
+title: "Final Project"
+author: "Camille Starck"
+date: "5/6/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r include=FALSE}
+# Required Packages:
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org") 
+
+# Required Data
+urlfile <- "https://vincentarelbundock.github.io/Rdatasets/csv/AER/CASchools.csv"
+data <- read_csv(url(urlfile))
+# https://vincentarelbundock.github.io/Rdatasets/doc/AER/CASchools.html
+data <- as.data.frame(data)
+```
+## Introduction
+In this report, we will perform an analysis on the CASchools dataset to find factors that affect test scores. The CASchools dataset contains data on test performance, school characteristics and student demographic backgrounds for school districts in California. The data used here are from all 420 K-6 and K-8 districts in California with data available for 1998 and 1999. School characteristics and demographic variables are averaged across their respective districts. The following are the variables in the dataset.
+
+district: District code  
+school: School name  
+county: Indicating county  
+grades: Indicating grade span of district  
+students: Total enrollment  
+teachers: Number of teachers  
+calworks: Percent qualifying for CalWorks (income assistance)  
+lunch: Percent qualifying for reduced-price lunch  
+computer: Number of computers  
+expenditure: Expenditure per student  
+income: District average income (in USD 1,000)  
+english: Percent of English learners (that is, students for whom English is a second language)  
+read: Average reading score  
+math: Average math score  
+  
+Here is a sample of the dataset. Note that only a few variables have been selected and some of the original data has been rounded for the display.
+```{r, echo=FALSE}
+options(digits=3)
+data %>% select(district, students, teachers, lunch, computer, income, english, read, math) %>% head()
+options(digits=7) # Return to default number of digits which is 7
+```
+
+```{r, include=FALSE}
+# Adding the score column and whether or not a school has more or less English learners.
+# use the median (instead of the mean) as the defining distinction between more English learners versus less. Schools labeled *more* have a percentage greater than the median of English learners, and otherwise schools are labeled *less*.
+m <- median(data$english)
+data3 <- data %>% mutate(english_perc = ifelse(english > m, 'more', 'less')) %>% mutate(score = (read+math)/2)
+```
+
+## Visualizations
+Here are visualizations of the data to which the Analysis and Conclusion sections will refer.
+```{r, echo=FALSE}
+# Histogram of English learners
+h <- data %>% ggplot()
+h + geom_histogram(aes(english), col='black', alpha=.8, fill='darkblue', bins = 15) +
+  labs(title='Histogram of the Percent of English Learners',
+       subtitle='Figure 1', x = 'English Learners (%)')
+```
+
+```{r, echo=FALSE}
+# Visualization of test scores gap
+d <- data3 %>% ggplot()
+d + geom_density(aes(score, fill=english_perc), alpha = .5) + 
+  labs(title='Test Scores', subtitle='Figure 2') +
+  scale_fill_manual(name="English Learners", values = c('lightskyblue','darkblue'))
+```
+
+```{r, echo = FALSE}
+# Visualization of simple linear regression
+p <- data3 %>% ggplot()
+p + geom_point(aes(x = lunch, y = score), col = 'lightskyblue') +
+  geom_abline(slope = -.61029, intercept = 681.43952, col = 'darkblue') +
+  labs(title = "Scores Predicted by Reduced Lunch Percentage", subtitle='Figure 3',
+       x = 'Reduced Lunch Students (%)',
+       y = 'Average Math & Reading Score') +
+  geom_text(x= 50, y=690, label='RMSE = 9.447', size=3) +
+  geom_text(x = 50, y = 695, label = 'y = -.61x + 681.44', size = 4)
+```
+
+## Analysis
+For the first analysis, we conduct a hypothesis test to answer the question- **Do schools with a higher percentage of English learners have lower test scores than other schools?** The test score is calculated by averaging the math and reading scores. Also, recall that an English learner is one for whom English is a second language. From Figure 1, we can see that the distribution of English learners is right-skewed, so we use the median (instead of the mean) as the defining distinction between more English learners versus less. Schools labeled *more* have a percentage greater than the median of English learners, and otherwise schools are labeled *less*. 
+Here are the average scores of the two categories.
+
+```{r, echo=FALSE}
+# Look at average scores of more and less
+scores <- data3 %>% group_by(english_perc) %>% summarize(mean=mean(score))
+scores <- as.data.frame(scores)
+scores %>% rename('avg_test_score' = mean, "eng_learn" = english_perc)
+```
+
+We can see from this summarized data that schools with more English learners have a lower test average. When we use a t-test to test the claim that schools with a larger percentage of English learners have a lower test score average than schools with a smaller percentage of English learners, R yields this p-value.
+```{r, echo = FALSE}
+# Select vector of scores of more and less
+more_score <- data3 %>% filter(english_perc == 'more') %>% select(score)
+less_score <- data3 %>% filter(english_perc == 'less') %>% select(score)
+# Perform t-test
+test1 <- t.test(more_score, less_score, alternative = 'less')
+test1$p.val
+```
+
+Next, we try to model this data. Here we look at the correlation coefficients of all the variables with *score*.
+```{r, echo=FALSE}
+# Look at the correlation coefficients
+num_data <- data3 %>% select(students, teachers, calworks, lunch, expenditure, income, computer, english, score)
+x <- as.data.frame(round(cor(num_data),2))
+x[,'score',drop=FALSE]
+```
+```{r, include=FALSE}
+# Simple Linear model of score predicted by lunch
+lm1 <- lm(data3$score ~ data3$lunch)
+summary(lm1) # RMSE = 9.447.
+
+# Multiple Linear model. This is the best one we could find. There are others in the R Script.
+lm3 <-lm(data3$score ~ data$english + data$lunch + data$expenditure + data$income)
+summary(lm3)
+```
+
+We see that *score* has the highest correlation with *lunch*, so we make a simple linear model using these variables. This regression yields an RMSE = 9.447, illustrated in Figure 3. Further, a multiple linear regression of *score* predicted by *english*, *lunch*, *expenditure*, and *income* yields an RMSE = 8.424.
+
+## Conclusion
+From the t-test that yields a very small p-value, we can conclude that there is evidence to support the claim that schools with more students whose first language is not English tend to perform worse on these tests than schools with more native English speakers. Figure 2 shows this gap. Also, from the simple regression model and Figure 3, we can conclude that as the percent qualifying for reduced lunch increases, the test scores decreases. Further, from the multiple linear regression, we can see that *english*, *lunch*, *expenditure*, and *income* all affect the test scores as well. Because of a smaller RMSE value, this model is slightly better.
+
+In conclusion, this report shows that four important factors affecting test scores are the percent of English learners, the percent qualifying for reduced lunches, the expenditure per student, and the district average income. These findings are consistent with our previous knowledge. First, it is reasonable that children learning in a language that is not as familiar to them will not perform as well on tests. Also, schools with more students from poverty tend to perform worse than other schools. This is supported by a plethora of research on poverty and education. And finally, the expenditure per student represents a portion of how much each school is investing in its students, which will understandably affect test scores. Decision-makers should consider the research so they can provide the resources to students who may suffer from a language barrier or financial reasons. 
